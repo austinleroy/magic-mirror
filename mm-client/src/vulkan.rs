@@ -16,6 +16,7 @@ use ash::{
         dynamic_rendering, surface, swapchain, video_decode_av1, video_decode_h264,
         video_decode_h265, video_decode_queue, video_queue,
     },
+    ext::{self, debug_utils::Instance as DebugUtils},
     vk,
 };
 use cstr::cstr;
@@ -236,7 +237,7 @@ impl VkContext {
 
         debug!("creating vulkan instance");
 
-        let (major, minor) = match entry.try_enumerate_instance_version()? {
+        let (major, minor) = unsafe { match entry.try_enumerate_instance_version()? {
             // Vulkan 1.1+
             Some(version) => (
                 vk::api_version_major(version),
@@ -244,7 +245,7 @@ impl VkContext {
             ),
             // Vulkan 1.0
             None => (1, 0),
-        };
+        }};
 
         if major < 1 || (major == 1 && minor < 2) {
             return Err(anyhow::anyhow!("vulkan 1.2 or higher is required"));
@@ -277,7 +278,7 @@ impl VkContext {
             extensions.push(vk::KhrGetPhysicalDeviceProperties2Fn::name().as_ptr());
         }
 
-        if debug {
+        if debug { unsafe {
             let props = entry.enumerate_instance_extension_properties(None)?;
             let available_extensions = props
                 .into_iter()
@@ -309,7 +310,7 @@ impl VkContext {
             } else {
                 warn!("validation layers requested, but not available!")
             }
-        }
+        } }
 
         let instance = {
             let flags = if cfg!(any(target_os = "macos", target_os = "ios")) {

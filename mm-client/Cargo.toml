@@ -41,7 +41,7 @@ oneshot = { version = "0.1", default-features = false, features = ["std"] }
 opus = "0.3"
 pollster = "0.3"
 rand = "0.8"
-raw-window-handle = "0.5"
+raw-window-handle = "0.6"
 simple_moving_average = "1"
 tabwriter = "1"
 tracing = "0.1"

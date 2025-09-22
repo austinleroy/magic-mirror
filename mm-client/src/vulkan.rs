@@ -11,13 +11,13 @@ use std::{
 
 use anyhow::{anyhow, bail, Context};
 use ash::{
-    extensions::{
-        ext::DebugUtils,
-        khr::{
-            DynamicRendering as DynamicRenderingExt, Surface as SurfaceExt,
-            Swapchain as SwapchainExt,
-        },
+    khr::{
+        self,
+        swapchain::Device as SwapchainExt,
+        dynamic_rendering::Device as DynamicRenderingExt,
+        surface::Instance as SurfaceExt,
     },
+    ext::{self, debug_utils::Instance as DebugUtils},
     vk,
 };
 use cstr::cstr;
@@ -125,22 +125,22 @@ impl VkDeviceInfo {
                 .collect::<Vec<_>>()
         };
 
-        let ext_swapchain = SwapchainExt::name();
+        let ext_swapchain = khr::swapchain::NAME;
         if !contains(&available_extensions, ext_swapchain) {
             return Err(anyhow::anyhow!("swapchain extension not available"));
         }
 
         let mut selected_extensions = vec![
             ext_swapchain.to_owned(),
-            vk::KhrDynamicRenderingFn::name().to_owned(),
+            khr::dynamic_rendering::NAME.to_owned(),
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             vk::KhrPortabilitySubsetFn::name().to_owned(),
         ];
 
-        let ext_video_queue = vk::KhrVideoQueueFn::name();
-        let ext_video_decode_queue = vk::KhrVideoDecodeQueueFn::name();
-        let ext_h264 = vk::KhrVideoDecodeH264Fn::name();
-        let ext_h265 = vk::KhrVideoDecodeH265Fn::name();
+        let ext_video_queue = khr::video_queue::NAME;
+        let ext_video_decode_queue = khr::video_decode_queue::NAME;
+        let ext_h264 = khr::video_decode_h264::NAME;
+        let ext_h265 = khr::video_decode_h265::NAME;
         let ext_av1 = cstr!("VK_EXT_video_decode_av1"); // This doesn't exist yet.
 
         let mut supports_h264 = false;
@@ -238,7 +238,7 @@ impl VkContext {
 
         debug!("creating vulkan instance");
 
-        let (major, minor) = match entry.try_enumerate_instance_version()? {
+        let (major, minor) = unsafe { match entry.try_enumerate_instance_version()? {
             // Vulkan 1.1+
             Some(version) => (
                 vk::api_version_major(version),
@@ -246,7 +246,7 @@ impl VkContext {
             ),
             // Vulkan 1.0
             None => (1, 0),
-        };
+        }};
 
         if major < 1 || (major == 1 && minor < 2) {
             return Err(anyhow::anyhow!("vulkan 1.2 or higher is required"));
@@ -259,7 +259,7 @@ impl VkContext {
             (major, minor)
         };
 
-        let app_info = vk::ApplicationInfo::builder()
+        let app_info = vk::ApplicationInfo::default()
             .application_name(cstr!("Magic Mirror"))
             .application_version(vk::make_api_version(0, 0, 1, 0))
             .engine_name(cstr!("No Engine"))
@@ -267,7 +267,7 @@ impl VkContext {
             .api_version(vk::make_api_version(0, major, minor, 0));
 
         let mut extensions =
-            ash_window::enumerate_required_extensions(window.raw_display_handle())?.to_vec();
+            ash_window::enumerate_required_extensions(window.raw_display_handle()?)?.to_vec();
 
         let mut layers = Vec::new();
 
@@ -279,7 +279,7 @@ impl VkContext {
             extensions.push(vk::KhrGetPhysicalDeviceProperties2Fn::name().as_ptr());
         }
 
-        if debug {
+        if debug { unsafe {
             let props = entry.enumerate_instance_extension_properties(None)?;
             let available_extensions = props
                 .into_iter()
@@ -290,7 +290,7 @@ impl VkContext {
 
             if !available_extensions
                 .iter()
-                .any(|ext| ext.as_c_str() == DebugUtils::name())
+                .any(|ext| ext.as_c_str() == ext::debug_utils::NAME)
             {
                 return Err(anyhow::anyhow!(
                     "debug utils extension requested, but not available"
@@ -298,7 +298,7 @@ impl VkContext {
             }
 
             warn!("vulkan debug tooling enabled");
-            extensions.push(DebugUtils::name().as_ptr());
+            extensions.push(ext::debug_utils::NAME.as_ptr());
 
             let validation_layer = cstr!("VK_LAYER_KHRONOS_validation");
             let layer_props = entry.enumerate_instance_layer_properties()?;
@@ -311,7 +311,7 @@ impl VkContext {
             } else {
                 warn!("validation layers requested, but not available!")
             }
-        }
+        } }
 
         let instance = {
             let flags = if cfg!(any(target_os = "macos", target_os = "ios")) {
@@ -320,7 +320,7 @@ impl VkContext {
                 vk::InstanceCreateFlags::default()
             };
 
-            let instance_create_info = vk::InstanceCreateInfo::builder()
+            let instance_create_info = vk::InstanceCreateInfo::default()
                 .flags(flags)
                 .application_info(&app_info)
                 .enabled_layer_names(&layers)
@@ -334,8 +334,8 @@ impl VkContext {
             ash_window::create_surface(
                 &entry,
                 &instance,
-                window.raw_display_handle(),
-                window.raw_window_handle(),
+                window.raw_display_handle()?,
+                window.raw_window_handle()?,
                 None,
             )?
         };
@@ -343,7 +343,7 @@ impl VkContext {
         let debug_utils = if debug {
             let debug_utils = DebugUtils::new(&entry, &instance);
 
-            let create_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
+            let create_info = vk::DebugUtilsMessengerCreateInfoEXT::default()
                 .message_severity(
                     vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
                         | vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE
@@ -427,25 +427,24 @@ impl VkContext {
             let queue_create_infos = queue_indices
                 .iter()
                 .map(|&index| {
-                    vk::DeviceQueueCreateInfo::builder()
+                    vk::DeviceQueueCreateInfo::default()
                         .queue_family_index(index)
                         .queue_priorities(queue_priorities)
-                        .build()
                 })
                 .collect::<Vec<_>>();
 
             let mut enabled_1_1_features =
-                vk::PhysicalDeviceVulkan11Features::builder().sampler_ycbcr_conversion(true);
+                vk::PhysicalDeviceVulkan11Features::default().sampler_ycbcr_conversion(true);
 
             let mut dynamic_rendering_features =
-                vk::PhysicalDeviceDynamicRenderingFeatures::builder().dynamic_rendering(true);
+                vk::PhysicalDeviceDynamicRenderingFeatures::default().dynamic_rendering(true);
 
             let extension_names = device_info
                 .selected_extensions
                 .iter()
                 .map(|v| v.as_c_str().as_ptr())
                 .collect::<Vec<_>>();
-            let device_create_info = vk::DeviceCreateInfo::builder()
+            let device_create_info = vk::DeviceCreateInfo::default()
                 .queue_create_infos(&queue_create_infos)
                 .enabled_extension_names(&extension_names)
                 .push_next(&mut enabled_1_1_features)
@@ -553,7 +552,7 @@ fn init_tracy_context(
         // Begin the command buffer.
         device.begin_command_buffer(
             cb,
-            &vk::CommandBufferBeginInfo::builder()
+            &vk::CommandBufferBeginInfo::default()
                 .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
         )?;
 
@@ -572,7 +571,7 @@ fn init_tracy_context(
         let cbs = [cb];
         device.queue_submit(
             present_queue.queue,
-            &[vk::SubmitInfo::builder().command_buffers(&cbs).build()],
+            &[vk::SubmitInfo::default().command_buffers(&cbs)],
             fence,
         )?;
 
@@ -624,7 +623,7 @@ fn get_queue_with_command_pool(device: &ash::Device, idx: u32) -> Result<VkQueue
     let queue = unsafe { device.get_device_queue(idx, 0) };
 
     let command_pool = unsafe {
-        let create_info = vk::CommandPoolCreateInfo::builder()
+        let create_info = vk::CommandPoolCreateInfo::default()
             .queue_family_index(idx)
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
 
@@ -641,7 +640,7 @@ pub fn create_command_buffer(
     device: &ash::Device,
     pool: vk::CommandPool,
 ) -> anyhow::Result<vk::CommandBuffer> {
-    let create_info = vk::CommandBufferAllocateInfo::builder()
+    let create_info = vk::CommandBufferAllocateInfo::default()
         .level(vk::CommandBufferLevel::PRIMARY)
         .command_pool(pool)
         .command_buffer_count(1);
@@ -677,7 +676,7 @@ impl VkImage {
         flags: vk::ImageCreateFlags,
     ) -> anyhow::Result<Self> {
         let image = {
-            let create_info = vk::ImageCreateInfo::builder()
+            let create_info = vk::ImageCreateInfo::default()
                 .image_type(vk::ImageType::TYPE_2D)
                 .format(format)
                 .extent(vk::Extent3D {
@@ -777,7 +776,7 @@ pub unsafe fn bind_memory_for_image(
     }
 
     let memory = {
-        let image_allocate_info = vk::MemoryAllocateInfo::builder()
+        let image_allocate_info = vk::MemoryAllocateInfo::default()
             .allocation_size(image_memory_req.size)
             .memory_type_index(mem_type_index.unwrap());
 
@@ -803,7 +802,7 @@ pub unsafe fn create_image_view(
     format: vk::Format,
     sampler_conversion: Option<vk::SamplerYcbcrConversion>,
 ) -> anyhow::Result<vk::ImageView> {
-    let mut create_info = vk::ImageViewCreateInfo::builder()
+    let mut create_info = vk::ImageViewCreateInfo::default()
         .image(image)
         .view_type(vk::ImageViewType::TYPE_2D)
         .format(format)
@@ -824,7 +823,7 @@ pub unsafe fn create_image_view(
     let mut sampler_conversion_info;
     if let Some(sampler_conversion) = sampler_conversion {
         sampler_conversion_info =
-            vk::SamplerYcbcrConversionInfo::builder().conversion(sampler_conversion);
+            vk::SamplerYcbcrConversionInfo::default().conversion(sampler_conversion);
         create_info = create_info.push_next(&mut sampler_conversion_info);
     }
 
@@ -847,7 +846,7 @@ pub fn create_host_buffer(
     size: usize,
 ) -> Result<VkHostBuffer, vk::Result> {
     let buffer = {
-        let create_info: vk::BufferCreateInfoBuilder<'_> = vk::BufferCreateInfo::builder()
+        let create_info = vk::BufferCreateInfo::default()
             .size(size as u64)
             .usage(usage)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
@@ -858,7 +857,7 @@ pub fn create_host_buffer(
     let memory = {
         let requirements = unsafe { device.get_buffer_memory_requirements(buffer) };
 
-        let alloc_info = vk::MemoryAllocateInfo::builder()
+        let alloc_info = vk::MemoryAllocateInfo::default()
             .allocation_size(requirements.size)
             .memory_type_index(mem_type);
 
@@ -900,7 +899,7 @@ impl VkTimestampQueryPool {
                 .get_query_pool_results(
                     self.pool,
                     0,
-                    self.num_timestamps,
+                    //self.num_timestamps,
                     &mut results,
                     vk::QueryResultFlags::empty(),
                 )
@@ -919,7 +918,7 @@ pub fn create_timestamp_query_pool(
     device: &ash::Device,
     num_timestamps: u32,
 ) -> anyhow::Result<VkTimestampQueryPool> {
-    let create_info = vk::QueryPoolCreateInfo::builder()
+    let create_info = vk::QueryPoolCreateInfo::default()
         .query_type(vk::QueryType::TIMESTAMP)
         .query_count(num_timestamps);
 
@@ -936,7 +935,7 @@ pub fn create_timestamp_query_pool(
 }
 
 pub fn create_fence(device: &ash::Device, signalled: bool) -> Result<vk::Fence, vk::Result> {
-    let mut create_info = vk::FenceCreateInfo::builder();
+    let mut create_info = vk::FenceCreateInfo::default();
     if signalled {
         create_info = create_info.flags(vk::FenceCreateFlags::SIGNALED);
     }
@@ -953,7 +952,7 @@ pub fn create_semaphore(device: &ash::Device) -> Result<vk::Semaphore, vk::Resul
 
 pub fn load_shader(device: &ash::Device, bytes: &[u8]) -> anyhow::Result<vk::ShaderModule> {
     let code = ash::util::read_spv(&mut std::io::Cursor::new(bytes))?;
-    let create_info = vk::ShaderModuleCreateInfo::builder().code(&code);
+    let create_info = vk::ShaderModuleCreateInfo::default().code(&code);
 
     let shader = unsafe { device.create_shader_module(&create_info, None)? };
 
@@ -976,7 +975,7 @@ pub fn create_ycbcr_sampler_conversion(
         vk::SamplerYcbcrRange::ITU_NARROW
     };
 
-    let create_info = vk::SamplerYcbcrConversionCreateInfo::builder()
+    let create_info = vk::SamplerYcbcrConversionCreateInfo::default()
         .format(format)
         .ycbcr_model(ycbcr_model)
         .ycbcr_range(ycbcr_range)
@@ -1026,7 +1025,7 @@ pub fn cmd_image_barrier(
     old_layout: vk::ImageLayout,
     new_layout: vk::ImageLayout,
 ) {
-    let barrier = vk::ImageMemoryBarrier::builder()
+    let barrier = vk::ImageMemoryBarrier::default()
         .src_access_mask(src_access_mask)
         .dst_access_mask(dst_access_mask)
         .old_layout(old_layout)
@@ -1038,8 +1037,7 @@ pub fn cmd_image_barrier(
             level_count: 1,
             base_array_layer: 0,
             layer_count: 1,
-        })
-        .build();
+        });
 
     unsafe {
         device.cmd_pipeline_barrier(

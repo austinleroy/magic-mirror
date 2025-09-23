@@ -283,9 +283,9 @@ impl VkContext {
             let props = entry.enumerate_instance_extension_properties(None)?;
             let available_extensions = props
                 .into_iter()
-                .map(|properties| unsafe {
+                .map(|properties| 
                     CStr::from_ptr(&properties.extension_name as *const _).to_owned()
-                })
+                )
                 .collect::<Vec<_>>();
 
             if !available_extensions
@@ -304,7 +304,7 @@ impl VkContext {
             let layer_props = entry.enumerate_instance_layer_properties()?;
             if layer_props
                 .into_iter()
-                .map(|properties| unsafe { CStr::from_ptr(&properties.layer_name as *const _) })
+                .map(|properties| CStr::from_ptr(&properties.layer_name as *const _))
                 .any(|layer| layer == validation_layer)
             {
                 layers.push(validation_layer.as_ptr());
@@ -985,6 +985,28 @@ pub fn create_ycbcr_sampler_conversion(
 
     let conversion = unsafe { device.create_sampler_ycbcr_conversion(&create_info, None)? };
     Ok(conversion)
+}
+
+pub fn get_ycbcr_conversion_properties(
+    device: vk::PhysicalDevice,
+    instance: &ash::Instance,
+    format: vk::Format
+) -> anyhow::Result<vk::SamplerYcbcrConversionImageFormatProperties> {
+    let mut ycbcr_props = vk::SamplerYcbcrConversionImageFormatProperties::default();
+    let mut image_format_props2 = vk::ImageFormatProperties2::default()
+        .push_next(&mut ycbcr_props);
+    
+    let image_format_info = vk::PhysicalDeviceImageFormatInfo2::default()
+        .format(format)
+        .ty(vk::ImageType::TYPE_2D)
+        .tiling(vk::ImageTiling::OPTIMAL)
+        .usage(vk::ImageUsageFlags::SAMPLED);
+    
+    unsafe { 
+        instance.get_physical_device_image_format_properties2(device, &image_format_info, &mut image_format_props2)?; 
+    }
+    
+    Ok(ycbcr_props)
 }
 
 unsafe extern "system" fn vulkan_debug_utils_callback(

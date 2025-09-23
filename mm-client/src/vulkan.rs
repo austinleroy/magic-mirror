@@ -282,9 +282,9 @@ impl VkContext {
             let props = entry.enumerate_instance_extension_properties(None)?;
             let available_extensions = props
                 .into_iter()
-                .map(|properties| unsafe {
+                .map(|properties| 
                     CStr::from_ptr(&properties.extension_name as *const _).to_owned()
-                })
+                )
                 .collect::<Vec<_>>();
 
             if !available_extensions
@@ -303,7 +303,7 @@ impl VkContext {
             let layer_props = entry.enumerate_instance_layer_properties()?;
             if layer_props
                 .into_iter()
-                .map(|properties| unsafe { CStr::from_ptr(&properties.layer_name as *const _) })
+                .map(|properties| CStr::from_ptr(&properties.layer_name as *const _))
                 .any(|layer| layer == validation_layer)
             {
                 layers.push(validation_layer.as_ptr());

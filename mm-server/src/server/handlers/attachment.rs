@@ -425,6 +425,7 @@ impl<'a> AttachmentHandler<'a> {
                 }
             },
             protocol::MessageType::GamepadAvailable(ev) => {
+                trace!("received gamepad available event: {:?}", ev);
                 let (id, _layout) = match validate_gamepad(ev.gamepad) {
                     Ok(v) => v,
                     Err(ValidationError::Invalid(text)) => {
@@ -448,6 +449,7 @@ impl<'a> AttachmentHandler<'a> {
                     .ok();
             }
             protocol::MessageType::GamepadMotion(ev) => {
+                trace!(ev.axis, ev.value, "received gamepad motion event: {:?}", ev);
                 let (scancode, is_trigger) =
                     match protocol::gamepad_motion::GamepadAxis::try_from(ev.axis)
                         .ok()
@@ -479,6 +481,7 @@ impl<'a> AttachmentHandler<'a> {
                 self.handle.control.send(cm).ok();
             }
             protocol::MessageType::GamepadInput(ev) => {
+                trace!(ev.button, ev.state, "received gamepad input event: {:?}", ev);
                 use protocol::gamepad_input::{GamepadButton, GamepadButtonState};
                 let state = match ev.state.try_into() {
                     Ok(GamepadButtonState::Unknown) | Err(_) => {

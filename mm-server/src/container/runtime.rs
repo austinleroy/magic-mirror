@@ -517,6 +517,7 @@ impl Container {
                 // ("gid", "5"),
             ],
         ));
+        must!(symlinkat(c"/dev/pts/ptmx", AT_FDCWD, c"/dev/ptmx"));
 
         // Symlink /dev/fd -> /proc/self/fd, etc.
         must!(symlinkat(c"/proc/self/fd", AT_FDCWD, c"/dev/fd"));

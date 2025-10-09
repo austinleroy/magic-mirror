@@ -97,21 +97,6 @@ impl GamepadHandle {
             super::compositor::ButtonState::Released => 0,
         };
 
-        // The DualSense sends D-pad buttons as ABS_HAT0{X,Y}.
-        let key_code = southpaw::KeyCode::try_from(button_code as u16);
-        if let Some((axis, direction)) = match key_code {
-            Ok(KeyCode::BtnDpadUp) => Some((AbsAxis::HAT0Y, -1)),
-            Ok(KeyCode::BtnDpadDown) => Some((AbsAxis::HAT0Y, 1)),
-            Ok(KeyCode::BtnDpadLeft) => Some((AbsAxis::HAT0X, -1)),
-            Ok(KeyCode::BtnDpadRight) => Some((AbsAxis::HAT0X, 1)),
-            _ => None,
-        } {
-            // Simulate a press and release, each in a frame.
-            self.ev_buffer
-                .push(InputEvent::new(EV_ABS, axis, value * direction));
-            return;
-        }
-
         self.ev_buffer
             .push(InputEvent::new(EV_KEY, button_code as u16, value));
     }
@@ -212,16 +197,9 @@ impl InputDeviceManager {
             ..Default::default()
         };
 
-        let dpad_absinfo = AbsInfo {
-            value: 0,
-            minimum: -1,
-            maximum: 1,
-            ..Default::default()
-        };
-
         let device = southpaw::Device::builder()
             .name("Magic Mirror Emulated Controller")
-            .id(southpaw::BusType::Usb, 1234, 4567, 111)
+            .id(southpaw::BusType::Usb, 0x054c, 0x0268, 0x8111)
             .supported_key_codes([
                 KeyCode::BtnSouth,
                 KeyCode::BtnNorth,
@@ -236,6 +214,10 @@ impl InputDeviceManager {
                 KeyCode::BtnMode,
                 KeyCode::BtnThumbl,
                 KeyCode::BtnThumbr,
+                KeyCode::BtnDpadDown,
+                KeyCode::BtnDpadUp,
+                KeyCode::BtnDpadRight,
+                KeyCode::BtnDpadLeft,
             ])
             .supported_absolute_axis(AbsAxis::X, xy_absinfo)
             .supported_absolute_axis(AbsAxis::Y, xy_absinfo)
@@ -243,8 +225,6 @@ impl InputDeviceManager {
             .supported_absolute_axis(AbsAxis::RY, xy_absinfo)
             .supported_absolute_axis(AbsAxis::Z, trigger_absinfo)
             .supported_absolute_axis(AbsAxis::RZ, trigger_absinfo)
-            .supported_absolute_axis(AbsAxis::HAT0X, dpad_absinfo)
-            .supported_absolute_axis(AbsAxis::HAT0Y, dpad_absinfo)
             .add_to_tree(&mut self.southpaw, &eventname)?;
 
         guard.devices.push(DeviceState {
